@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useMemo } from 'react';
 import { Navbar } from './components/Navbar';
 import { MapDashboard } from './components/MapDashboard';
 import { TimelinePanel } from './components/TimelinePanel';
@@ -7,7 +7,8 @@ import { RiskWaterfallInspector } from './components/RiskWaterfallInspector';
 import { AssetImpactTable } from './components/AssetImpactTable';
 import { DecisionSupportPanel } from './components/DecisionSupportPanel';
 import { AssistantChat } from './components/AssistantChat';
-import { apiService } from './services/api';
+import { DemoDataProvider, RealDataProvider } from './services/DataProvider';
+import type { DataProvider } from './services/DataProvider';
 import type {
   SatelliteScene,
   SpillDetection,
@@ -20,24 +21,35 @@ import type {
   ResponseRecommendation,
 } from './types';
 
+import { IncidentLocationControl } from './components/IncidentLocationControl';
+import { IntelligencePanel } from './components/IntelligencePanel';
+
 export function App() {
   // State
   const [selectedScene, setSelectedScene] = useState<SatelliteScene | undefined>();
   const [detections, setDetections] = useState<SpillDetection[]>([]);
   const [activeTrack, setActiveTrack] = useState<TrackedSlick | undefined>();
-  const [forecastRun, setForecastRun] = useState<ForecastRun | undefined>();
+  const [forecastRun] = useState<ForecastRun | undefined>();
   const [forecastBands, setForecastBands] = useState<ForecastBand[]>([]);
   const [assets, setAssets] = useState<Asset[]>([]);
   const [impacts, setImpacts] = useState<ImpactAssessment[]>([]);
   const [selectedRisk, setSelectedRisk] = useState<RiskAssessment | undefined>();
   const [recommendations, setRecommendations] = useState<ResponseRecommendation[]>([]);
 
+  // Location State
+  const [incidentCoords, setIncidentCoords] = useState<[number, number] | undefined>(undefined);
+  const [incidentName, setIncidentName] = useState('');
+  
+  // GLOBAL MODE
+  const [dataMode, setDataMode] = useState<'DEMO' | 'REAL'>('DEMO');
+  const [intelligenceData, setIntelligenceData] = useState<any>(null);
+
   // Map & Controls State
   const [selectedHorizonHours, setSelectedHorizonHours] = useState<number>(24);
   const [visibleConfidenceLevels, setVisibleConfidenceLevels] = useState<number[]>([0.50, 0.80, 0.95]);
   const [currentStep, setCurrentStep] = useState<number>(0);
   const [flyToCoords, setFlyToCoords] = useState<[number, number] | null>(null);
-  const [isLoading, setIsLoading] = useState<boolean>(true);
+  const [isLoading, setIsLoading] = useState<boolean>(false);
 
   const [visibleLayers, setVisibleLayers] = useState({
     footprint: true,
@@ -45,6 +57,8 @@ export function App() {
     forecast: true,
     assets: true,
     trackHistory: true,
+    vessels: true,
+    infrastructure: true,
   });
 
   const toggleLayer = (layerKey: string) => {
@@ -60,84 +74,82 @@ export function App() {
     );
   };
 
-  // Initial Data Fetch
-  const loadData = async () => {
+  const provider: DataProvider = useMemo(() => {
+    return dataMode === 'DEMO' ? new DemoDataProvider() : new RealDataProvider();
+  }, [dataMode]);
+
+  const loadData = async (lat: number, lon: number, name: string) => {
     setIsLoading(true);
+    setIncidentCoords([lat, lon]);
+    setIncidentName(name);
+    setFlyToCoords([lon, lat]);
+    
+    // Clear previous state
+    setSelectedScene(undefined);
+    setDetections([]);
+    setActiveTrack(undefined);
+    setForecastBands([]);
+    setAssets([]);
+    setImpacts([]);
+    setSelectedRisk(undefined);
+    setRecommendations([]);
+    setIntelligenceData(null);
+
     try {
-      // 1. Fetch Tracks & Scenes
-      const [trackList, sceneList, assetList] = await Promise.all([
-        apiService.getTracks(),
-        apiService.getScenes(),
-        apiService.getAssets(),
-      ]);
+      await provider.initialize(lat, lon, name);
+      
+      const payload = provider.getRawPayload();
+      setIntelligenceData(payload);
 
-      setAssets(assetList);
-
-      const targetTrack = trackList[0];
-      setActiveTrack(targetTrack);
-      setSelectedScene(sceneList[0]);
-
-      if (targetTrack) {
-        // 2. Fetch Latest Forecast for Track
-        const fRun = await apiService.getLatestForecast(targetTrack.track_id);
-        setForecastRun(fRun);
-        if (fRun?.bands) {
-          setForecastBands(fRun.bands);
-        }
-
-        // 3. Fetch Impacts and Recommendations
-        if (fRun?.forecast_run_id) {
-          const impactList = await apiService.getImpacts(fRun.forecast_run_id);
-          setImpacts(impactList);
-
-          if (impactList.length > 0) {
-            const riskData = await apiService.getRiskAssessment(impactList[0].id).catch(() => undefined);
-            setSelectedRisk(riskData);
-          }
-        }
-
-        const recs = await apiService.getTrackRecommendations(targetTrack.track_id).catch(() => []);
-        setRecommendations(recs);
-
-        // 4. Extract detections from temporal observations
-        const dets = targetTrack.temporal_observations
-          ?.map((o) => o.detection)
-          .filter(Boolean) as SpillDetection[];
-        setDetections(dets || []);
+      const satelliteData = provider.getSatelliteData();
+      if (satelliteData && satelliteData.length > 0) {
+        setSelectedScene(satelliteData[0]);
       }
-    } catch (err) {
-      console.error('Failed to load system state:', err);
+      
+      setDetections(provider.getSpillDetection() || []);
+      
+      const track = provider.getActiveTrack();
+      setActiveTrack(track || undefined);
+      
+      setForecastBands(provider.getPrediction() || []);
+      setAssets(provider.getAssets() || []);
+      setImpacts(provider.getImpacts() || []);
+      setRecommendations(provider.getRecommendations() || []);
+
+      const impactsList = provider.getImpacts();
+      if (impactsList && impactsList.length > 0) {
+         setSelectedRisk(undefined);
+      }
+    } catch (err: any) {
+      console.error(err);
+      if (dataMode === 'REAL') alert(err.message || "REAL DATA UNAVAILABLE. Backend error.");
     } finally {
       setIsLoading(false);
     }
   };
 
+  // Re-fetch data if mode changes but we have a location
   useEffect(() => {
-    loadData();
-  }, []);
+    if (incidentCoords && incidentName) {
+       loadData(incidentCoords[0], incidentCoords[1], incidentName);
+    }
+  }, [dataMode]);
+
+  const handleLocationChange = (lat: number, lon: number, name: string) => {
+      // Location search uses the global DEMO/REAL mode from Navbar, not a local override.
+      void loadData(lat, lon, name);
+  };
 
   const handleSeedDemo = async () => {
-    setIsLoading(true);
-    try {
-      await apiService.seedCaseStudies();
-      await loadData();
-    } catch (err) {
-      console.error('Failed to seed case study:', err);
-    } finally {
-      setIsLoading(false);
-    }
+    setDataMode('DEMO');
+    // For a demo, simulate clicking Ennore port
+    loadData(13.23, 80.33, 'Ennore Port (DEMO)');
   };
 
   const handleSelectImpact = async (imp: ImpactAssessment) => {
-    try {
-      const riskData = await apiService.getRiskAssessment(imp.id);
-      setSelectedRisk(riskData);
-      if (imp.asset) {
-        setFlyToCoords([imp.asset.centroid_lon, imp.asset.centroid_lat]);
-      }
-    } catch (err) {
-      console.error('Failed to load risk detail:', err);
-    }
+     if (imp.asset) {
+       setFlyToCoords([imp.asset.centroid_lon, imp.asset.centroid_lat]);
+     }
   };
 
   return (
@@ -150,21 +162,32 @@ export function App() {
         driftHeadingDeg={activeTrack?.drift_heading_deg}
         status={activeTrack?.current_status}
         isSynthetic={selectedScene?.is_synthetic}
-        onRefresh={loadData}
+        onRefresh={() => incidentCoords && loadData(incidentCoords[0], incidentCoords[1], incidentName)}
         onSeedDemo={handleSeedDemo}
         isLoading={isLoading}
+        currentMode={dataMode}
+        onModeToggle={() => setDataMode(m => m === 'DEMO' ? 'REAL' : 'DEMO')}
       />
 
       {/* Main Content Dashboard */}
       <div className="flex-1 flex overflow-hidden">
         {/* Center: Geospatial Map View */}
         <div className="flex-1 flex flex-col relative">
+          <div className="absolute top-4 left-4 z-20">
+            <IncidentLocationControl 
+              currentLocationName={incidentName}
+              currentCoords={incidentCoords}
+              dataMode={dataMode}
+              onLocationChange={handleLocationChange}
+            />
+          </div>
           <MapDashboard
             scene={selectedScene}
             detections={detections}
             activeTrack={activeTrack}
             forecastBands={forecastBands}
             assets={assets}
+            intelligenceData={intelligenceData}
             selectedHorizonHours={selectedHorizonHours}
             visibleConfidenceLevels={visibleConfidenceLevels}
             visibleLayers={visibleLayers}
@@ -175,6 +198,7 @@ export function App() {
               }
             }}
             flyToCoords={flyToCoords}
+            incidentCoords={incidentCoords || [20.5937, 78.9629]} // Center of India as fallback
           />
 
           {/* Bottom Time Scrubber */}
@@ -189,9 +213,13 @@ export function App() {
 
         {/* Right Intelligence & Decision Support Sidebar */}
         <div className="w-[440px] flex flex-col glass-panel border-l border-slate-700/80 p-4 space-y-4 overflow-y-auto custom-scrollbar z-20">
+          
+          <IntelligencePanel data={intelligenceData} incidentName={incidentName} />
+
           {/* 1. Trajectory Forecasting Controls */}
           <ForecastControls
             forecastRun={forecastRun}
+
             selectedHorizonHours={selectedHorizonHours}
             onSelectHorizon={setSelectedHorizonHours}
             visibleConfidenceLevels={visibleConfidenceLevels}

@@ -17,10 +17,14 @@ interface MapDashboardProps {
     forecast: boolean;
     assets: boolean;
     trackHistory: boolean;
+    vessels?: boolean;
+    infrastructure?: boolean;
   };
   onToggleLayer: (layerKey: string) => void;
   onSelectFeature?: (feature: any) => void;
   flyToCoords?: [number, number] | null;
+  incidentCoords?: [number, number];
+  intelligenceData?: any;
 }
 
 export const MapDashboard: React.FC<MapDashboardProps> = ({
@@ -35,6 +39,8 @@ export const MapDashboard: React.FC<MapDashboardProps> = ({
   onToggleLayer,
   onSelectFeature,
   flyToCoords,
+  incidentCoords,
+  intelligenceData,
 }) => {
   const mapContainerRef = useRef<HTMLDivElement>(null);
   const mapInstanceRef = useRef<L.Map | null>(null);
@@ -44,9 +50,9 @@ export const MapDashboard: React.FC<MapDashboardProps> = ({
   useEffect(() => {
     if (!mapContainerRef.current || mapInstanceRef.current) return;
 
-    // Center on Ennore / Bay of Bengal region
+    // Center on incident or fallback to Ennore
     const map = L.map(mapContainerRef.current, {
-      center: [13.25, 80.35],
+      center: incidentCoords || [13.25, 80.35],
       zoom: 11,
       zoomControl: false,
       attributionControl: false,
@@ -67,6 +73,9 @@ export const MapDashboard: React.FC<MapDashboardProps> = ({
       forecast: L.layerGroup().addTo(map),
       assets: L.layerGroup().addTo(map),
       trackHistory: L.layerGroup().addTo(map),
+      vessels: L.layerGroup().addTo(map),
+      infrastructure: L.layerGroup().addTo(map),
+      aoi: L.layerGroup().addTo(map),
     };
 
     mapInstanceRef.current = map;
@@ -91,20 +100,32 @@ export const MapDashboard: React.FC<MapDashboardProps> = ({
     group.clearLayers();
 
     if (visibleLayers.footprint && scene?.footprint_geojson) {
-      const footprintLayer = L.geoJSON(scene.footprint_geojson, {
-        style: {
-          color: '#38bdf8',
-          weight: 1.5,
-          dashArray: '4, 4',
-          fillColor: '#0284c7',
-          fillOpacity: 0.05,
-        },
-      });
-      footprintLayer.bindTooltip(
-        `<b>${scene.scene_name}</b><br/>Sensor: ${scene.source}<br/>Acquisition: ${new Date(scene.acquisition_time).toUTCString()}`,
-        { sticky: true }
-      );
-      group.addLayer(footprintLayer);
+      if (scene.quicklook_local && scene.bbox) {
+        const bounds: L.LatLngBoundsExpression = [
+          [scene.bbox[1], scene.bbox[0]], // minLat, minLon
+          [scene.bbox[3], scene.bbox[2]], // maxLat, maxLon
+        ];
+        const imageOverlay = L.imageOverlay(scene.quicklook_local, bounds, {
+          opacity: 0.8,
+          alt: 'SAR Quicklook',
+        });
+        group.addLayer(imageOverlay);
+      } else {
+        const footprintLayer = L.geoJSON(scene.footprint_geojson, {
+          style: {
+            color: '#38bdf8',
+            weight: 1.5,
+            dashArray: '4, 4',
+            fillColor: '#0284c7',
+            fillOpacity: 0.05,
+          },
+        });
+        footprintLayer.bindTooltip(
+          `<b>${scene.scene_name}</b><br/>Sensor: ${scene.source}<br/>Acquisition: ${new Date(scene.acquisition_time).toUTCString()}`,
+          { sticky: true }
+        );
+        group.addLayer(footprintLayer);
+      }
     }
   }, [scene, visibleLayers.footprint]);
 
@@ -253,6 +274,74 @@ export const MapDashboard: React.FC<MapDashboardProps> = ({
     }
   }, [assets, visibleLayers.assets]);
 
+  // Render Real AIS Vessels
+  useEffect(() => {
+    const group = layersGroupRef.current.vessels;
+    if (!group) return;
+    group.clearLayers();
+
+    if (visibleLayers.vessels && intelligenceData?.analysis?.vessels?.vessels) {
+      const vessels = intelligenceData.analysis.vessels.vessels;
+      vessels.forEach((v: any) => {
+        if (!v.latitude || !v.longitude) return;
+        
+        const marker = L.circleMarker([v.latitude, v.longitude], {
+          radius: 4,
+          color: '#f8fafc',
+          weight: 1,
+          fillColor: '#94a3b8',
+          fillOpacity: 0.8,
+        });
+
+        marker.bindPopup(`
+          <div class="p-2 text-xs">
+            <div class="font-bold text-slate-100">${v.name || 'Unknown Vessel'}</div>
+            <div><b>MMSI:</b> ${v.mmsi}</div>
+            <div><b>Type:</b> ${v.vessel_type || 'Unknown'}</div>
+            <div><b>Speed:</b> ${v.speed ? v.speed + ' kn' : 'N/A'}</div>
+            <div><b>Course:</b> ${v.heading ? v.heading + '°' : 'N/A'}</div>
+            <div class="text-emerald-400 mt-1"><b>Reported:</b> ${new Date(v.timestamp).toLocaleString()}</div>
+          </div>
+        `);
+        group.addLayer(marker);
+      });
+    }
+  }, [intelligenceData, visibleLayers.vessels]);
+
+  // Render Backtrack / Estimated Source Zone
+  useEffect(() => {
+    const group = layersGroupRef.current.trackHistory;
+    if (!group) return;
+    // Don't clearLayers here if trackHistory is also used by mock tracks, but since we are in REAL mode, mock tracks are empty.
+    
+    if (visibleLayers.trackHistory && intelligenceData?.analysis?.backtrack?.status === 'COMPLETED') {
+      const backtrack = intelligenceData.analysis.backtrack;
+      if (backtrack.source_lat && backtrack.source_lon) {
+         const circle = L.circle([backtrack.source_lat, backtrack.source_lon], {
+           radius: 3000, // 3km uncertainty radius
+           color: '#f59e0b',
+           weight: 2,
+           dashArray: '5,5',
+           fillColor: '#fcd34d',
+           fillOpacity: 0.15
+         });
+         circle.bindTooltip(`<b>Estimated Source Zone</b><br/>Confidence: ${backtrack.confidence}`, { sticky: true });
+         group.addLayer(circle);
+
+         // Draw line from slick centroid to source zone
+         const slick = intelligenceData?.analysis?.spill_candidates?.[0];
+         if (slick && slick.centroid_lat && slick.centroid_lon) {
+           const line = L.polyline([[slick.centroid_lat, slick.centroid_lon], [backtrack.source_lat, backtrack.source_lon]], {
+             color: '#f59e0b',
+             weight: 1.5,
+             dashArray: '4,4'
+           });
+           group.addLayer(line);
+         }
+      }
+    }
+  }, [intelligenceData, visibleLayers.trackHistory]);
+
   // Render Track History & Kinematic Drift Vectors
   useEffect(() => {
     const group = layersGroupRef.current.trackHistory;
@@ -362,6 +451,17 @@ export const MapDashboard: React.FC<MapDashboardProps> = ({
             />
             <span className="flex-1">Historical Drift Track</span>
             <span className="w-2 h-2 rounded-full bg-cyan-400"></span>
+          </label>
+          
+          <label className="flex items-center space-x-2 cursor-pointer hover:text-blue-300 transition">
+            <input
+              type="checkbox"
+              checked={visibleLayers.vessels}
+              onChange={() => onToggleLayer('vessels')}
+              className="rounded bg-slate-900 border-slate-700 text-slate-500 focus:ring-0"
+            />
+            <span className="flex-1">AIS Vessels</span>
+            <span className="w-2 h-2 rounded-full bg-slate-400"></span>
           </label>
         </div>
       </div>

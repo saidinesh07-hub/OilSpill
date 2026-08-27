@@ -83,4 +83,15 @@ export const apiService = {
     fetchJson<any>('/pipeline/case_studies/seed', {
       method: 'POST',
     }),
+    
+  // Intelligence Report
+  getIntelligence: (incidentId: string | number) => 
+    fetchJson<any>(`/location/${incidentId}/intelligence`),
+    
+  // Unified Location Analysis
+  analyzeLocation: (lat: number, lon: number, name: string, mode: 'DEMO' | 'REAL') =>
+    fetchJson<any>('/location/analyze', {
+      method: 'POST',
+      body: JSON.stringify({ latitude: lat, longitude: lon, name, mode }),
+    }),
 };

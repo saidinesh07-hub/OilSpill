@@ -8,7 +8,7 @@ from backend.app.database.session import get_db
 from backend.app.database.models import TrackedSlick, TemporalObservation
 from backend.app.schemas.common import APIResponse
 from backend.app.services.incident_context import IncidentContextBuilder
-from backend.app.temporal.evolution import classify_evolution_state
+from backend.app.temporal.evolution import classify_slick_evolution_state
 
 router = APIRouter(prefix="/analysis", tags=["Timeline & Incident Analysis"])
 

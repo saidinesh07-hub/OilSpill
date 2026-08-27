@@ -34,7 +34,9 @@ class Settings(BaseSettings):
     # Satellite Ingestion (Copernicus Data Space Ecosystem)
     CDSE_CLIENT_ID: Optional[str] = None
     CDSE_CLIENT_SECRET: Optional[str] = None
-    CDSE_API_URL: str = "https://catalogue.dataspace.copernicus.eu/resto/api"
+    CDSE_USERNAME: Optional[str] = None
+    CDSE_PASSWORD: Optional[str] = None
+    CDSE_API_URL: str = "https://catalogue.dataspace.copernicus.eu/odata/v1/Products"
 
     # Oceanographic Data (Copernicus Marine Service - CMEMS)
     CMEMS_USERNAME: Optional[str] = None
@@ -47,6 +49,13 @@ class Settings(BaseSettings):
     # External Asset Layers
     WDPA_API_KEY: Optional[str] = None
     GLOBAL_FISHING_WATCH_API_KEY: Optional[str] = None
+
+    # Optional AIS / vessel providers (REAL mode never invents positions)
+    AIS_API_KEY: Optional[str] = None
+    AIS_API_URL: Optional[str] = None
+    AISHUB_USERNAME: Optional[str] = None
+    NOMINATIM_USER_AGENT: str = "OilSpillIntelligenceSystem/1.0 (research; contact=local)"
+    NOMINATIM_USER_AGENT: str = "OilSpillIntelligenceSystem/1.0 (research; contact=local)"
 
     # AI Assistant
     LLM_PROVIDER: str = "local_heuristic"  # Options: "local_heuristic", "openai", "gemini"

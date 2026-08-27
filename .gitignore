@@ -53,3 +53,6 @@ yarn-debug.log*
 # OS
 .DS_Store
 Thumbs.db
+
+# Local CDSE product downloads
+temp_downloads/

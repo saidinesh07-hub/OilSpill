@@ -19,6 +19,22 @@ def utc_now():
     return datetime.now(timezone.utc)
 
 
+class Incident(Base):
+    """Canonical Incident location and metadata."""
+    __tablename__ = "incidents"
+
+    incident_id = Column(String, primary_key=True, default=generate_uuid)
+    name = Column(String, nullable=False, index=True)
+    latitude = Column(Float, nullable=False)
+    longitude = Column(Float, nullable=False)
+    timestamp = Column(DateTime, default=utc_now)
+    mode = Column(String, default="DEMO") # REAL or DEMO
+    data_source = Column(String, default="Sentinel-1 SAR")
+    spill_type = Column(String, default="UNKNOWN")
+    confidence = Column(Float, default=0.0)
+    source_scene_id = Column(String, nullable=True)
+    created_at = Column(DateTime, default=utc_now)
+
 class ModelVersion(Base):
     __tablename__ = "model_versions"
 

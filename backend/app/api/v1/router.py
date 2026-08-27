@@ -1,11 +1,7 @@
-"""
-API v1 Router Aggregation
-"""
 from fastapi import APIRouter
 from backend.app.api.v1.endpoints import (
-    health, scenes, detections, tracks, forecasts, environmental, assets, impact_risk, assistant, pipeline, analysis
+    health, scenes, detections, tracks, forecasts, environmental, assets, impact_risk, assistant, pipeline, analysis, incidents, satellite
 )
-
 api_router = APIRouter(prefix="/api/v1")
 
 api_router.include_router(health.router)
@@ -19,3 +15,5 @@ api_router.include_router(impact_risk.router)
 api_router.include_router(assistant.router)
 api_router.include_router(pipeline.router)
 api_router.include_router(analysis.router)
+api_router.include_router(incidents.router)
+api_router.include_router(satellite.router)

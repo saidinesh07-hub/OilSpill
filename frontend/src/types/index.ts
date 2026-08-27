@@ -9,6 +9,7 @@ export interface SatelliteScene {
   bbox: number[];
   is_synthetic: boolean;
   ingestion_status: string;
+  quicklook_local?: string;
 }
 
 export interface SpillDetection {

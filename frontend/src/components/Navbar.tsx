@@ -1,5 +1,5 @@
 import React from 'react';
-import { Shield, Database, RefreshCw, AlertTriangle } from 'lucide-react';
+import { Shield, RefreshCw, AlertTriangle, PlayCircle, Globe } from 'lucide-react';
 
 interface NavbarProps {
   activeSlickName?: string;
@@ -11,6 +11,8 @@ interface NavbarProps {
   onRefresh?: () => void;
   onSeedDemo?: () => void;
   isLoading?: boolean;
+  currentMode: 'DEMO' | 'REAL';
+  onModeToggle: () => void;
 }
 
 export const Navbar: React.FC<NavbarProps> = ({
@@ -23,6 +25,8 @@ export const Navbar: React.FC<NavbarProps> = ({
   onRefresh,
   onSeedDemo,
   isLoading = false,
+  currentMode,
+  onModeToggle,
 }) => {
   return (
     <header className="glass-panel border-b border-slate-700/80 px-6 py-3 flex items-center justify-between z-30">
@@ -89,14 +93,41 @@ export const Navbar: React.FC<NavbarProps> = ({
 
       {/* Action Buttons */}
       <div className="flex items-center space-x-3">
+        {/* Global Mode Toggle */}
+        <div className="flex items-center bg-slate-900 border border-slate-700 rounded-lg p-0.5 overflow-hidden">
+          <button
+            onClick={currentMode === 'REAL' ? onModeToggle : undefined}
+            disabled={isLoading}
+            className={`px-3 py-1 text-xs font-bold transition-colors ${
+              currentMode === 'DEMO'
+                ? 'bg-amber-500/20 text-amber-400 border border-amber-500/50 rounded-md shadow-sm'
+                : 'text-slate-500 hover:text-slate-300'
+            }`}
+          >
+            DEMO DATA
+          </button>
+          <button
+            onClick={currentMode === 'DEMO' ? onModeToggle : undefined}
+            disabled={isLoading}
+            className={`px-3 py-1 text-xs font-bold transition-colors flex items-center space-x-1 ${
+              currentMode === 'REAL'
+                ? 'bg-blue-600/20 text-blue-400 border border-blue-500/50 rounded-md shadow-sm'
+                : 'text-slate-500 hover:text-slate-300'
+            }`}
+          >
+            <Globe className="w-3 h-3" />
+            <span>REAL DATA</span>
+          </button>
+        </div>
+
         <button
           onClick={onSeedDemo}
           disabled={isLoading}
-          className="flex items-center space-x-1.5 bg-slate-800 hover:bg-slate-700 border border-slate-600 px-3 py-1.5 rounded-lg text-xs font-semibold text-slate-200 transition"
-          title="Reload Ennore Port 2017 multi-pass Sentinel-1 scenario"
+          className="flex items-center space-x-1.5 bg-amber-600 hover:bg-amber-500 px-3 py-1.5 rounded-lg text-xs font-semibold text-white shadow-md transition disabled:opacity-50"
+          title="Run Ennore Port 2017 Demo Scenario"
         >
-          <Database className="w-3.5 h-3.5 text-blue-400" />
-          <span>Load Case Study</span>
+          <PlayCircle className="w-3.5 h-3.5" />
+          <span>Run Demo</span>
         </button>
 
         <button

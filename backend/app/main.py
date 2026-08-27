@@ -5,10 +5,12 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
+from fastapi.staticfiles import StaticFiles
 from backend.app.core.config import settings
 from backend.app.core.logging import logger
 from backend.app.database.session import init_db
 from backend.app.api.v1.router import api_router
+import os
 
 
 @asynccontextmanager
@@ -57,6 +59,8 @@ async def global_exception_handler(request: Request, exc: Exception):
 # Include versioned API router
 app.include_router(api_router)
 
+os.makedirs("temp_downloads", exist_ok=True)
+app.mount("/static/images", StaticFiles(directory="temp_downloads"), name="images")
 
 @app.get("/")
 def root():
