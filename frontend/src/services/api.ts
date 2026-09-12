@@ -7,6 +7,8 @@ import type {
   RiskAssessment,
   ResponseRecommendation,
   AssistantQueryResponse,
+  MaritimeResponse,
+  SpillCorrelationResponse
 } from '../types';
 
 const API_BASE = '/api/v1';
@@ -94,4 +96,21 @@ export const apiService = {
       method: 'POST',
       body: JSON.stringify({ latitude: lat, longitude: lon, name, mode }),
     }),
+    
+  // Maritime Intelligence
+  getVessels: (minLat?: number, maxLat?: number, minLon?: number, maxLon?: number, limit: number = 2000) => {
+    const params = new URLSearchParams();
+    if (minLat !== undefined) params.append('min_lat', minLat.toString());
+    if (maxLat !== undefined) params.append('max_lat', maxLat.toString());
+    if (minLon !== undefined) params.append('min_lon', minLon.toString());
+    if (maxLon !== undefined) params.append('max_lon', maxLon.toString());
+    params.append('limit', limit.toString());
+    return fetchJson<MaritimeResponse>(`/maritime/vessels?${params.toString()}`);
+  },
+  
+  getSpillVessels: (spillId: string) => 
+    fetchJson<SpillCorrelationResponse>(`/maritime/spill/${spillId}/vessels`),
+    
+  getSpillIntelligence: (spillId: string) => 
+    fetchJson<any>(`/intelligence/spill/${spillId}`),
 };

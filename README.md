@@ -66,6 +66,29 @@ Click **Load Case Study** in the navbar to run the Ennore Port 2017 **DEMO** mul
 python -m pytest -v
 ```
 
+## System Architecture
+
+```mermaid
+flowchart TD
+    S1[SENTINEL-1 SAR DATA] --> AI[AI SEGMENTER]
+    AI --> SM[SPILL MODEL]
+    SM --> TT[TEMPORAL TRACKING]
+    SM --> MI[MARITIME INTEL]
+    MI --> OSIRIS[OSIRIS]
+    MI --> AISHUB[AISHUB]
+    OSIRIS --> VH[VESSEL HISTORY]
+    AISHUB --> VH
+    VH --> SC[SPILL CORRELATION]
+    SC --> FC[FORECAST]
+    SC --> AS[ASSETS]
+    FC --> IMPACT[IMPACT]
+    AS --> IMPACT
+    IMPACT --> RISK[RISK]
+    RISK --> RESPONSE[RESPONSE]
+    RESPONSE --> API[INTELLIGENCE API]
+    API --> UI[REACT + LEAFLET DASHBOARD]
+```
+
 ## Train Segmentation Model
 
 Download the [Krestenitis benchmark](https://doi.org/10.3390/rs11151762) (Zenodo) into `data/segmentation/krestenitis/` with `images/` and `masks/` subfolders, then:

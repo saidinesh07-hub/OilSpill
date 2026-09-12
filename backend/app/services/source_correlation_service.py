@@ -1,8 +1,13 @@
-"""Explainable source correlation. Proximity is not causation."""
-from typing import Any, Dict, List, Optional
-from datetime import datetime
 import math
+from datetime import datetime, timezone
+from typing import Any, Dict, List, Optional
+from shapely.geometry import shape, Point
 
+# Configurable Weights / Assumptions
+SCORE_FRESH = 10
+SCORE_RECENT = 7
+SCORE_STALE = 0
+SCORE_UNKNOWN = 1
 
 def _haversine(lat1, lon1, lat2, lon2) -> float:
     r = 6371.0
@@ -11,16 +16,155 @@ def _haversine(lat1, lon1, lat2, lon2) -> float:
     a = math.sin(dlat / 2) ** 2 + math.cos(math.radians(lat1)) * math.cos(math.radians(lat2)) * math.sin(dlon / 2) ** 2
     return r * 2 * math.atan2(math.sqrt(a), math.sqrt(1 - a))
 
-
-def _hours(t1: str, t2: Optional[str]) -> Optional[float]:
-    if not t1 or not t2:
-        return None
+def _calculate_distance_to_poly(v_lat: float, v_lon: float, poly_geojson: Dict[str, Any]) -> float:
     try:
-        d1 = datetime.fromisoformat(t1.replace("Z", "+00:00"))
-        d2 = datetime.fromisoformat(str(t2).replace("Z", "+00:00"))
-        return abs((d1 - d2).total_seconds()) / 3600.0
+        geom = shape(poly_geojson)
+        pt = Point(v_lon, v_lat)
+        
+        if geom.contains(pt):
+            return 0.0
+            
+        # Simplistic conversion: 1 degree ~ 111 km
+        dist_deg = geom.distance(pt)
+        return dist_deg * 111.0
     except Exception:
-        return None
+        return 999.0
+
+def correlate_sources(
+    spill_lat: float,
+    spill_lon: float,
+    spill_time: Optional[str],
+    spill_geojson: Optional[Dict[str, Any]],
+    vessels: List[Dict[str, Any]]
+) -> Dict[str, Any]:
+    ranked_candidates = []
+    
+    if not spill_time:
+        spill_time = datetime.now(timezone.utc).isoformat()
+    try:
+        sp_dt = datetime.fromisoformat(spill_time.replace("Z", "+00:00"))
+    except ValueError:
+        sp_dt = datetime.now(timezone.utc)
+        
+    for v in vessels:
+        try:
+            lat = float(v["latitude"])
+            lon = float(v["longitude"])
+            v_time_str = v.get("timestamp") or v.get("ais_timestamp") or ""
+            v_dt = datetime.fromisoformat(v_time_str.replace("Z", "+00:00"))
+        except Exception:
+            continue
+            
+        # 1. Spatial Score (max 30)
+        dist_centroid = _haversine(spill_lat, spill_lon, lat, lon)
+        dist_poly = dist_centroid
+        if spill_geojson:
+            dist_poly = _calculate_distance_to_poly(lat, lon, spill_geojson)
+            
+        dist_km = min(dist_centroid, dist_poly)
+        
+        if dist_km <= 1.0:
+            spatial_score = 30
+        elif dist_km <= 5.0:
+            spatial_score = 20
+        elif dist_km <= 15.0:
+            spatial_score = 10
+        elif dist_km <= 30.0:
+            spatial_score = 5
+        else:
+            spatial_score = 0
+            
+        # 2. Temporal Score (max 25)
+        diff_hours = (v_dt - sp_dt).total_seconds() / 3600.0
+        abs_diff = abs(diff_hours)
+        
+        if abs_diff <= 1.0:
+            temporal_score = 25
+        elif abs_diff <= 6.0:
+            temporal_score = 15
+        elif abs_diff <= 12.0:
+            temporal_score = 8
+        elif abs_diff <= 24.0:
+            temporal_score = 3
+        else:
+            temporal_score = 0
+            
+        # 3. Pre-spill presence (max 15)
+        # Higher score if vessel was observed BEFORE the spill detection, indicating it could have discharged
+        present_before = diff_hours <= 0
+        pre_spill_score = 15 if present_before and abs_diff <= 24 else 5 if not present_before and abs_diff <= 6 else 0
+        
+        # 4. Movement data quality (max 10)
+        # MVP: no full tracks, base on speed/course presence. Not a genuine trajectory consistency.
+        movement_quality_score = 10 if v.get("speed") is not None and v.get("course") is not None else 5
+        
+        # 5. Vessel type (max 10)
+        v_type = str(v.get("vessel_type") or v.get("type") or "unknown").lower()
+        if "tanker" in v_type:
+            vessel_score = 10
+        elif "cargo" in v_type or "container" in v_type:
+            vessel_score = 7
+        else:
+            vessel_score = 3
+            
+        # 6. Freshness (max 10)
+        f_status = v.get("freshness", "UNKNOWN")
+        if isinstance(f_status, dict):
+            f_status = f_status.get("freshness_status", "UNKNOWN")
+            
+        if f_status == "FRESH":
+            fresh_score = SCORE_FRESH
+        elif f_status == "RECENT":
+            fresh_score = SCORE_RECENT
+        elif f_status == "STALE":
+            fresh_score = SCORE_STALE
+        else:
+            fresh_score = SCORE_UNKNOWN
+            
+        total_score = spatial_score + temporal_score + pre_spill_score + movement_quality_score + vessel_score + fresh_score
+        
+        classification = "HIGHLY_RELEVANT" if total_score >= 70 else "POTENTIALLY_RELEVANT" if total_score >= 40 else "NOT_RELEVANT"
+        
+        if classification != "NOT_RELEVANT":
+            evidence = {
+                "spatial_proximity": {
+                    "distance_km": round(dist_km, 2),
+                    "score": spatial_score
+                },
+                "temporal_proximity": {
+                    "difference_hours": round(abs_diff, 2),
+                    "score": temporal_score
+                },
+                "pre_spill_presence": {
+                    "present_before_detection": present_before,
+                    "score": pre_spill_score
+                },
+                "movement_data_quality": {
+                    "score": movement_quality_score
+                },
+                "vessel_type": {
+                    "type": v_type,
+                    "score": vessel_score
+                },
+                "freshness": {
+                    "status": f_status,
+                    "score": fresh_score
+                }
+            }
+            
+            ranked_candidates.append({
+                "mmsi": v.get("mmsi"),
+                "name": v.get("name", "Unknown"),
+                "correlation_score": total_score,
+                "classification": classification,
+                "evidence": evidence,
+                "provenance": v.get("source") or v.get("provider", "UNKNOWN")
+            })
+            
+    ranked_candidates.sort(key=lambda x: x["correlation_score"], reverse=True)
+    return {
+        "candidates": ranked_candidates
+    }
 
 def estimate_source_zone(slick_lat: float, slick_lon: float) -> Dict[str, Any]:
     from backend.app.services.weather_provider import WeatherProvider
@@ -58,129 +202,4 @@ def estimate_source_zone(slick_lat: float, slick_lon: float) -> Dict[str, Any]:
         "source_lon": slick_lon,
         "confidence": "LOW (No weather data)",
         "weather": weather
-    }
-
-
-def correlate_sources(
-    slick_lat: float,
-    slick_lon: float,
-    slick_time: Optional[str],
-    vessels: List[Dict[str, Any]],
-    infrastructure: List[Dict[str, Any]],
-    slick_detected: bool,
-) -> Dict[str, Any]:
-    ranked: List[Dict[str, Any]] = []
-    ref = "slick candidate centroid" if slick_detected else "AOI center (no slick candidate)"
-
-    for v in vessels:
-        try:
-            lat, lon = float(v["latitude"]), float(v["longitude"])
-        except (KeyError, TypeError, ValueError):
-            continue
-        dist = _haversine(slick_lat, slick_lon, lat, lon)
-        if dist > 25:
-            continue
-        dt = _hours(slick_time or "", v.get("timestamp") or v.get("ais_timestamp"))
-        dist_pts = 30 if dist < 2 else 22 if dist < 5 else 12 if dist < 10 else 5
-        time_pts = 0
-        if dt is None:
-            time_note = "Temporal evidence not available"
-        elif dt < 1:
-            time_pts = 25
-            time_note = f"{dt:.2f} h from acquisition"
-        elif dt < 6:
-            time_pts = 15
-            time_note = f"{dt:.1f} h from acquisition"
-        elif dt < 24:
-            time_pts = 6
-            time_note = f"{dt:.1f} h from acquisition"
-        else:
-            time_note = f"{dt:.1f} h from acquisition (weak)"
-        fresh_pts = 8 if (dt is not None and dt < 1) else 3
-        score = dist_pts + time_pts + fresh_pts
-        level = "HIGH" if score >= 50 else "MEDIUM" if score >= 30 else "LOW"
-        ranked.append({
-            "type": "VESSEL",
-            "name": v.get("name") or "Unknown vessel",
-            "mmsi": v.get("mmsi"),
-            "distance_km": round(dist, 2),
-            "evidence_score": score,
-            "assessment": "POTENTIAL VESSEL-RELATED SOURCE" if score >= 30 else "NEARBY VESSEL — INSUFFICIENT EVIDENCE OF CAUSATION",
-            "spatial_proximity": f"{dist:.1f} km from {ref}",
-            "temporal_relationship": time_note,
-            "track_relationship": "Current AIS position only (no historical track in this MVP)",
-            "data_freshness": v.get("timestamp") or v.get("ais_timestamp"),
-            "source": v.get("source"),
-            "score_breakdown": {
-                "distance_contribution": dist_pts,
-                "temporal_relevance": time_pts,
-                "data_freshness": fresh_pts,
-                "track_intersection": 0,
-            },
-            "confidence": level,
-            "caveat": "Spatial/temporal correlation is not proof of causation.",
-        })
-
-    for inf in infrastructure:
-        try:
-            lat, lon = float(inf["latitude"]), float(inf["longitude"])
-        except (KeyError, TypeError, ValueError):
-            continue
-        dist = _haversine(slick_lat, slick_lon, lat, lon)
-        if dist > 25:
-            continue
-        dist_pts = 28 if dist < 1 else 18 if dist < 5 else 8 if dist < 15 else 3
-        score = dist_pts
-        level = "MEDIUM" if dist < 2 else "LOW"
-        ranked.append({
-            "type": inf.get("type") or "INFRASTRUCTURE",
-            "name": inf.get("name") or "Unnamed feature",
-            "distance_km": round(dist, 2),
-            "evidence_score": score,
-            "assessment": "NEARBY INFRASTRUCTURE — INSUFFICIENT EVIDENCE OF CAUSATION",
-            "spatial_proximity": f"{dist:.1f} km from {ref}",
-            "temporal_relationship": "NOT AVAILABLE (static OSM feature)",
-            "track_relationship": "n/a",
-            "data_freshness": inf.get("retrieved_at"),
-            "source": inf.get("source"),
-            "score_breakdown": {
-                "distance_contribution": dist_pts,
-                "temporal_relevance": 0,
-                "data_freshness": 0,
-                "track_intersection": 0,
-            },
-            "confidence": level,
-            "caveat": "A nearby pipeline or port does not establish a leak or discharge.",
-        })
-
-    ranked.sort(key=lambda x: -x["evidence_score"])
-    if not ranked:
-        conclusion = (
-            "No nearby vessels or infrastructure were available to correlate with the analysis location. "
-            "Source remains undetermined."
-        )
-    elif not slick_detected:
-        conclusion = (
-            "No oil-slick candidate was extracted from the SAR window. Nearby objects are listed for context only "
-            "and are not spill-source evidence."
-        )
-    else:
-        top = ranked[0]
-        conclusion = (
-            f"SAR dark-spot analysis produced an oil-slick candidate. The highest-ranked object is "
-            f"{top['type']} '{top['name']}' at {top['distance_km']} km ({top['assessment']}). "
-            "This is a potential source relationship and does not establish causation."
-        )
-
-    return {
-        "candidates": ranked[:12],
-        "conclusion": conclusion,
-        "limitations": [
-            "Low SAR backscatter can be oil, low wind, rain, or other look-alikes.",
-            "AIS coverage is incomplete; absence of vessels is not proof of no vessels.",
-            "OSM infrastructure can be incomplete or outdated.",
-            "No historical AIS track intersection was computed unless a track was provided.",
-            "Do not interpret proximity as legal or causal determination.",
-        ],
-        "reference_point": ref,
     }

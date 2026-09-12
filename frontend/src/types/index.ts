@@ -183,3 +183,68 @@ export interface AssistantQueryResponse {
   retrieved_data_summary: Record<string, any>;
   suggested_followups: string[];
 }
+
+export interface VesselFreshness {
+  source: string;
+  retrieved_at: string;
+  freshness_status: 'FRESH' | 'RECENT' | 'STALE' | 'UNKNOWN';
+}
+
+export interface VesselRecord {
+  mmsi?: string;
+  imo?: string;
+  name?: string;
+  vessel_type: string;
+  latitude: number;
+  longitude: number;
+  speed_knots?: number;
+  course_deg?: number;
+  heading_deg?: number;
+  destination?: string;
+  eta?: string;
+  ais_timestamp?: string;
+  provider: string;
+  data_status: string;
+  freshness?: VesselFreshness;
+}
+
+export interface EvidenceBreakdown {
+  spatial_proximity?: { distance_km: number; score: number };
+  temporal_proximity?: { difference_hours: number; score: number };
+  pre_spill_presence?: { present_before_detection: boolean; score: number };
+  movement_data_quality?: { score: number };
+  vessel_type?: { type: string; score: number };
+  freshness?: { status: string; score: number };
+}
+
+export interface CorrelationCandidate {
+  mmsi?: string;
+  name: string;
+  correlation_score: number;
+  classification: 'HIGHLY_RELEVANT' | 'POTENTIALLY_RELEVANT' | 'NOT_RELEVANT';
+  evidence: EvidenceBreakdown;
+  provenance: string;
+  // Injected for UI rendering
+  latitude?: number;
+  longitude?: number;
+  vessel_type?: string;
+  speed?: number;
+  course?: number;
+  timestamp?: string;
+}
+
+export interface SpillCorrelationResponse {
+  spill_id: string;
+  evaluated_at: string;
+  candidates: CorrelationCandidate[];
+}
+
+export interface MaritimeResponse {
+  status: string;
+  provider: string | null;
+  fallback_used: boolean;
+  fallback_reason: string | null;
+  retrieved_at: string | null;
+  vessel_count: number;
+  vessels: VesselRecord[];
+}

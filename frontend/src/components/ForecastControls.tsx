@@ -4,6 +4,7 @@ import type { ForecastRun } from '../types';
 
 interface ForecastControlsProps {
   forecastRun?: ForecastRun;
+  environmentalProvenance?: any;
   selectedHorizonHours: number;
   onSelectHorizon?: (h: number) => void;
   visibleConfidenceLevels: number[];
@@ -12,6 +13,7 @@ interface ForecastControlsProps {
 
 export const ForecastControls: React.FC<ForecastControlsProps> = ({
   forecastRun,
+  environmentalProvenance,
   selectedHorizonHours,
   onSelectHorizon,
   visibleConfidenceLevels,
@@ -138,6 +140,43 @@ export const ForecastControls: React.FC<ForecastControlsProps> = ({
             <span className="font-bold text-slate-200 font-mono">2.0 m²/s</span>
           </div>
         </div>
+
+        {environmentalProvenance && (
+          <div className="mt-3 pt-3 border-t border-slate-700/60 space-y-2">
+            <div className="text-[10px] uppercase font-bold text-slate-400 tracking-wider">
+              Environmental Forcing Provenance
+            </div>
+            
+            {['currents', 'winds'].map(type => {
+              const prov = environmentalProvenance[type];
+              if (!prov) return null;
+              
+              const isLive = prov.data_mode === 'LIVE_API';
+              const isDemo = prov.data_mode === 'DEMO_DATA';
+              
+              let badgeColor = 'bg-slate-800 text-slate-400 border-slate-700';
+              if (isLive) badgeColor = 'bg-emerald-950/50 text-emerald-400 border-emerald-500/50';
+              else if (isDemo) badgeColor = 'bg-amber-950/50 text-amber-400 border-amber-500/50';
+              else if (prov.data_mode === 'CACHED') badgeColor = 'bg-blue-950/50 text-blue-400 border-blue-500/50';
+              
+              return (
+                <div key={type} className="flex flex-col gap-0.5 bg-slate-900/50 p-1.5 rounded">
+                  <div className="flex items-center justify-between">
+                    <span className="text-[10px] text-slate-300 font-semibold capitalize">{type}</span>
+                    <span className={`text-[9px] px-1.5 py-0.5 rounded border uppercase font-bold ${badgeColor}`}>
+                      {prov.data_mode}
+                    </span>
+                  </div>
+                  <div className="text-[9px] text-slate-500 flex flex-col">
+                    <span><span className="text-slate-400">Source:</span> {prov.source}</span>
+                    <span><span className="text-slate-400">Details:</span> {prov.data_provenance}</span>
+                    <span><span className="text-slate-400">Retrieved:</span> {new Date(prov.data_vintage).toLocaleString()}</span>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        )}
       </div>
     </div>
   );

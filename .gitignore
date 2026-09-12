@@ -44,6 +44,9 @@ dist-ssr/
 npm-debug.log*
 yarn-debug.log*
 
+# Scratch
+scratch/
+
 # IDEs
 .vscode/
 .idea/

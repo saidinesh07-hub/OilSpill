@@ -1,7 +1,14 @@
 import React, { useEffect, useRef } from 'react';
 import L from 'leaflet';
 import { Layers, Compass } from 'lucide-react';
-import type { SpillDetection, ForecastBand, Asset, TrackedSlick, SatelliteScene } from '../types';
+import type { SpillDetection, ForecastBand, Asset, TrackedSlick, SatelliteScene, CorrelationCandidate } from '../types';
+
+// Utility for candidate marker colors based on classification
+const getCandidateColor = (classification: string) => {
+  if (classification === 'HIGHLY_RELEVANT') return '#ef4444'; // Red
+  if (classification === 'POTENTIALLY_RELEVANT') return '#f59e0b'; // Amber
+  return '#94a3b8'; // Slate
+};
 
 interface MapDashboardProps {
   scene?: SatelliteScene;
@@ -19,12 +26,16 @@ interface MapDashboardProps {
     trackHistory: boolean;
     vessels?: boolean;
     infrastructure?: boolean;
+    candidates?: boolean;
   };
   onToggleLayer: (layerKey: string) => void;
   onSelectFeature?: (feature: any) => void;
+  onSelectCandidate?: (candidate: CorrelationCandidate) => void;
   flyToCoords?: [number, number] | null;
   incidentCoords?: [number, number];
   intelligenceData?: any;
+  candidates?: CorrelationCandidate[];
+  activeCandidate?: CorrelationCandidate | null;
 }
 
 export const MapDashboard: React.FC<MapDashboardProps> = ({
@@ -38,9 +49,12 @@ export const MapDashboard: React.FC<MapDashboardProps> = ({
   visibleLayers,
   onToggleLayer,
   onSelectFeature,
+  onSelectCandidate,
   flyToCoords,
   incidentCoords,
   intelligenceData,
+  candidates = [],
+  activeCandidate,
 }) => {
   const mapContainerRef = useRef<HTMLDivElement>(null);
   const mapInstanceRef = useRef<L.Map | null>(null);
@@ -74,6 +88,7 @@ export const MapDashboard: React.FC<MapDashboardProps> = ({
       assets: L.layerGroup().addTo(map),
       trackHistory: L.layerGroup().addTo(map),
       vessels: L.layerGroup().addTo(map),
+      candidates: L.layerGroup().addTo(map),
       infrastructure: L.layerGroup().addTo(map),
       aoi: L.layerGroup().addTo(map),
     };
@@ -282,8 +297,10 @@ export const MapDashboard: React.FC<MapDashboardProps> = ({
 
     if (visibleLayers.vessels && intelligenceData?.analysis?.vessels?.vessels) {
       const vessels = intelligenceData.analysis.vessels.vessels;
+      const seenMmsi = new Set();
       vessels.forEach((v: any) => {
-        if (!v.latitude || !v.longitude) return;
+        if (!v.latitude || !v.longitude || seenMmsi.has(v.mmsi)) return;
+        seenMmsi.add(v.mmsi);
         
         const marker = L.circleMarker([v.latitude, v.longitude], {
           radius: 4,
@@ -385,6 +402,55 @@ export const MapDashboard: React.FC<MapDashboardProps> = ({
     }
   }, [activeTrack, visibleLayers.trackHistory]);
 
+  // Render Correlated Spill Candidates
+  useEffect(() => {
+    const group = layersGroupRef.current.candidates;
+    if (!group) return;
+    group.clearLayers();
+
+    if (visibleLayers.candidates && candidates.length > 0) {
+      candidates.forEach((cand, index) => {
+        if (!cand.latitude || !cand.longitude) return;
+
+        const isSelected = activeCandidate?.mmsi === cand.mmsi;
+        const color = getCandidateColor(cand.classification);
+        const rank = index + 1;
+        
+        // Custom SVG icon for Candidates
+        const svgIcon = `
+          <svg width="${isSelected ? 32 : 24}" height="${isSelected ? 32 : 24}" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+            <circle cx="12" cy="12" r="10" fill="${color}" fill-opacity="${isSelected ? 0.9 : 0.7}" stroke="${isSelected ? '#fff' : '#000'}" stroke-width="2"/>
+            <text x="12" y="16" font-size="10" font-weight="bold" fill="white" text-anchor="middle" font-family="sans-serif">${rank}</text>
+          </svg>
+        `;
+
+        const icon = L.divIcon({
+          html: svgIcon,
+          className: 'bg-transparent',
+          iconSize: isSelected ? [32, 32] : [24, 24],
+          iconAnchor: isSelected ? [16, 16] : [12, 12],
+        });
+
+        const marker = L.marker([cand.latitude, cand.longitude], {
+          icon: icon,
+          zIndexOffset: isSelected ? 1000 : 500,
+        });
+
+        marker.on('click', () => {
+          if (onSelectCandidate) onSelectCandidate(cand);
+        });
+
+        // Add tooltip instead of popup so clicking selects it for the sidebar
+        marker.bindTooltip(
+          `<b>#${rank} ${cand.name}</b><br/>Score: ${cand.correlation_score.toFixed(0)} - ${cand.classification.replace('_', ' ')}`,
+          { direction: 'top', offset: [0, -10] }
+        );
+
+        group.addLayer(marker);
+      });
+    }
+  }, [candidates, activeCandidate, visibleLayers.candidates, onSelectCandidate]);
+
   return (
     <div className="relative w-full h-full min-h-[500px] flex-1">
       {/* Map Container */}
@@ -462,6 +528,17 @@ export const MapDashboard: React.FC<MapDashboardProps> = ({
             />
             <span className="flex-1">AIS Vessels</span>
             <span className="w-2 h-2 rounded-full bg-slate-400"></span>
+          </label>
+          
+          <label className="flex items-center space-x-2 cursor-pointer hover:text-blue-300 transition">
+            <input
+              type="checkbox"
+              checked={visibleLayers.candidates}
+              onChange={() => onToggleLayer('candidates')}
+              className="rounded bg-slate-900 border-slate-700 text-amber-500 focus:ring-0"
+            />
+            <span className="flex-1">Correlation Candidates</span>
+            <span className="w-2 h-2 rounded-full bg-amber-400"></span>
           </label>
         </div>
       </div>

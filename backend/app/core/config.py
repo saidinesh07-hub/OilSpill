@@ -55,7 +55,11 @@ class Settings(BaseSettings):
     AIS_API_URL: Optional[str] = None
     AISHUB_USERNAME: Optional[str] = None
     NOMINATIM_USER_AGENT: str = "OilSpillIntelligenceSystem/1.0 (research; contact=local)"
-    NOMINATIM_USER_AGENT: str = "OilSpillIntelligenceSystem/1.0 (research; contact=local)"
+    
+    # OSIRIS Maritime Intelligence Integration
+    OSIRIS_ENABLED: bool = True
+    OSIRIS_BASE_URL: str = "https://osirisai.live"
+    OSIRIS_TIMEOUT_SECONDS: int = 10
 
     # AI Assistant
     LLM_PROVIDER: str = "local_heuristic"  # Options: "local_heuristic", "openai", "gemini"

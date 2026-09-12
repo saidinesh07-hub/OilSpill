@@ -19,10 +19,12 @@ import type {
   ImpactAssessment,
   RiskAssessment,
   ResponseRecommendation,
+  CorrelationCandidate,
 } from './types';
 
 import { IncidentLocationControl } from './components/IncidentLocationControl';
 import { IntelligencePanel } from './components/IntelligencePanel';
+import { CorrelationPanel } from './components/CorrelationPanel';
 
 export function App() {
   // State
@@ -44,6 +46,12 @@ export function App() {
   const [dataMode, setDataMode] = useState<'DEMO' | 'REAL'>('DEMO');
   const [intelligenceData, setIntelligenceData] = useState<any>(null);
 
+  // Correlation State
+  const [candidates, setCandidates] = useState<CorrelationCandidate[]>([]);
+  const [activeCandidate, setActiveCandidate] = useState<CorrelationCandidate | null>(null);
+  const [isInvestigating, setIsInvestigating] = useState(false);
+  const [investigationError, setInvestigationError] = useState<string | null>(null);
+
   // Map & Controls State
   const [selectedHorizonHours, setSelectedHorizonHours] = useState<number>(24);
   const [visibleConfidenceLevels, setVisibleConfidenceLevels] = useState<number[]>([0.50, 0.80, 0.95]);
@@ -58,6 +66,7 @@ export function App() {
     assets: true,
     trackHistory: true,
     vessels: true,
+    candidates: true,
     infrastructure: true,
   });
 
@@ -122,9 +131,56 @@ export function App() {
       }
     } catch (err: any) {
       console.error(err);
-      if (dataMode === 'REAL') alert(err.message || "REAL DATA UNAVAILABLE. Backend error.");
+      if (dataMode === 'REAL') setInvestigationError(err.message || "REAL DATA UNAVAILABLE. Backend error.");
     } finally {
       setIsLoading(false);
+    }
+  };
+
+  const handleInvestigateSpill = async () => {
+    if (detections.length === 0) return;
+    setIsInvestigating(true);
+    setInvestigationError(null);
+    setCandidates([]);
+    setActiveCandidate(null);
+    
+    try {
+      const spillId = detections[0].detection_id || 'spill-1';
+      // If DEMO, prefix with DEMO- to trigger the backend/frontend bypass appropriately
+      const searchId = dataMode === 'DEMO' ? 'DEMO-SPILL-1' : spillId;
+      
+      const response = await provider.getSpillIntelligence(searchId);
+      
+      if (response && response.candidates) {
+        setCandidates(response.candidates);
+        if (response.forecast_bands) setForecastBands(response.forecast_bands);
+        if (response.assets) setAssets(response.assets);
+        if (response.impacts) {
+           setImpacts(response.impacts);
+           if (response.impacts.length > 0) setSelectedRisk(undefined); // Reset active risk on new load
+        }
+        if (response.recommendations) setRecommendations(response.recommendations);
+        if (response.active_track) setActiveTrack(response.active_track);
+        
+        // Turn on all relevant layers when investigation completes
+        setVisibleLayers(prev => ({ 
+            ...prev, 
+            candidates: true,
+            forecast: true,
+            assets: true
+        }));
+        
+        if (response.candidates.length === 0) {
+           setInvestigationError('No relevant vessels identified within correlation window.');
+        }
+      } else {
+        setInvestigationError('Maritime intelligence unavailable.');
+      }
+    } catch (err) {
+      console.error('Failed to investigate spill', err);
+      setInvestigationError('Maritime intelligence unavailable. Connection failed.');
+    } finally {
+      setIsInvestigating(false);
     }
   };
 
@@ -197,8 +253,16 @@ export function App() {
                 setFlyToCoords([feat.centroid_lon, feat.centroid_lat]);
               }
             }}
+            onSelectCandidate={(cand) => {
+              setActiveCandidate(cand);
+              if (cand.longitude && cand.latitude) {
+                setFlyToCoords([cand.longitude, cand.latitude]);
+              }
+            }}
             flyToCoords={flyToCoords}
             incidentCoords={incidentCoords || [20.5937, 78.9629]} // Center of India as fallback
+            candidates={candidates}
+            activeCandidate={activeCandidate}
           />
 
           {/* Bottom Time Scrubber */}
@@ -214,11 +278,25 @@ export function App() {
         {/* Right Intelligence & Decision Support Sidebar */}
         <div className="w-[440px] flex flex-col glass-panel border-l border-slate-700/80 p-4 space-y-4 overflow-y-auto custom-scrollbar z-20">
           
-          <IntelligencePanel data={intelligenceData} incidentName={incidentName} />
+          {activeCandidate && (
+            <CorrelationPanel 
+              candidate={activeCandidate} 
+              onClose={() => setActiveCandidate(null)} 
+            />
+          )}
+
+          <IntelligencePanel 
+            data={intelligenceData} 
+            incidentName={incidentName} 
+            onInvestigateSpill={handleInvestigateSpill}
+            isInvestigating={isInvestigating}
+            investigationError={investigationError}
+          />
 
           {/* 1. Trajectory Forecasting Controls */}
           <ForecastControls
             forecastRun={forecastRun}
+            environmentalProvenance={intelligenceData?.analysis?.environmental_provenance || intelligenceData?.environmental_provenance}
 
             selectedHorizonHours={selectedHorizonHours}
             onSelectHorizon={setSelectedHorizonHours}

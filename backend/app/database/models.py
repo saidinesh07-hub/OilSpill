@@ -299,3 +299,28 @@ class AnalysisSession(Base):
     active_track_ids = Column(JSON, default=list)
     assistant_query_count = Column(Integer, default=0)
     metadata_json = Column(JSON, default=dict)
+
+
+class VesselSnapshot(Base):
+    """Historical snapshot of a vessel's position for retrospective correlation."""
+    __tablename__ = "vessel_snapshots"
+
+    id = Column(String, primary_key=True, default=generate_uuid)
+    mmsi = Column(String, index=True, nullable=True)
+    imo = Column(String, nullable=True)
+    name = Column(String, nullable=True)
+    vessel_type = Column(String, nullable=True)
+    latitude = Column(Float, nullable=False)
+    longitude = Column(Float, nullable=False)
+    speed_knots = Column(Float, nullable=True)
+    course_deg = Column(Float, nullable=True)
+    heading_deg = Column(Float, nullable=True)
+    ais_timestamp = Column(DateTime, index=True, nullable=False)
+    provider = Column(String, nullable=False)
+    freshness_status = Column(String, nullable=True)
+    retrieved_at = Column(DateTime, default=utc_now)
+
+    __table_args__ = (
+        Index('ix_vessel_snapshots_mmsi_timestamp', 'mmsi', 'ais_timestamp'),
+    )
+
