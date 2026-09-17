@@ -72,10 +72,10 @@ export const MapDashboard: React.FC<MapDashboardProps> = ({
       attributionControl: false,
     });
 
-    // Dark Matter tile layer for premium scientific aesthetics
-    L.tileLayer('https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png', {
-      maxZoom: 19,
-      subdomains: 'abcd',
+    // Esri Dark Gray Base for premium scientific aesthetics (no API key required)
+    L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/Canvas/World_Dark_Gray_Base/MapServer/tile/{z}/{y}/{x}', {
+      maxZoom: 16,
+      attribution: 'Tiles &copy; Esri &mdash; Esri, DeLorme, NAVTEQ',
     }).addTo(map);
 
     L.control.zoom({ position: 'bottomright' }).addTo(map);
