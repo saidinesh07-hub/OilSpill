@@ -33,14 +33,41 @@ class WindForcingAdapter(MetOceanForcingProvider):
         center_lon = (bbox[0] + bbox[2]) / 2.0
         center_lat = (bbox[1] + bbox[3]) / 2.0
 
-        # Physical prevailing winds
-        u_wind = 4.2
-        v_wind = 3.1
-        speed_ms = float(np.sqrt(u_wind ** 2 + v_wind ** 2))
-        speed_knots = speed_ms * 1.94384
-
-        # Wind direction in meteorological convention (direction wind is coming FROM)
-        dir_deg = (np.degrees(np.arctan2(-u_wind, -v_wind)) + 360.0) % 360.0
+        # If in REAL mode, try WeatherProvider (Open-Meteo)
+        from backend.app.core.config import settings
+        is_real_mode = getattr(settings, "DATA_MODE", "REAL") == "REAL"
+        
+        from backend.app.services.weather_provider import WeatherProvider
+        import math
+        
+        if is_real_mode:
+            weather = WeatherProvider()
+            res = weather.get_wind_at_location(center_lat, center_lon)
+            
+            if res.get("status") == "OK":
+                speed_ms = float(res.get("wind_speed_ms", 5.0)) # Fallback
+                dir_deg = float(res.get("wind_direction_deg", 210.0))
+                rad = math.radians((dir_deg - 180) % 360)
+                u_wind = -speed_ms * math.sin(rad)
+                v_wind = -speed_ms * math.cos(rad)
+                speed_knots = speed_ms * 1.94384
+                data_mode = "LIVE_API"
+                data_prov = "Live Open-Meteo API"
+                is_real = True
+            else:
+                is_real = False
+        else:
+            is_real = False
+            
+        if not is_real:
+            # Fallback to synthetic if live fails
+            u_wind = 4.2
+            v_wind = 3.1
+            speed_ms = float(np.sqrt(u_wind ** 2 + v_wind ** 2))
+            speed_knots = speed_ms * 1.94384
+            dir_deg = (np.degrees(np.arctan2(-u_wind, -v_wind)) + 360.0) % 360.0
+            data_mode = "DEMO_DATA"
+            data_prov = "SYNTHETIC — representative wind field for pipeline testing"
 
         # SAR Bragg scattering condition check:
         # If wind < 3 m/s: low wind area -> look-alike risk is HIGH
@@ -54,12 +81,9 @@ class WindForcingAdapter(MetOceanForcingProvider):
             sar_condition = "HIGH_WIND_DISPERSION"
 
         return {
-            "source": "NOAA GFS 0.25° / ECMWF ERA5 10m Wind",
-            "data_mode": "LIVE_API" if self.has_credentials else "DEMO_DATA",
-            "data_provenance": (
-                "Live CDS/GFS API" if self.has_credentials
-                else "SYNTHETIC — representative wind field for pipeline testing"
-            ),
+            "source": "Open-Meteo Marine API" if is_real else "NOAA GFS 0.25° / ECMWF ERA5 10m Wind",
+            "data_mode": data_mode,
+            "data_provenance": data_prov,
             "valid_time": target_time.isoformat(),
             "data_vintage": datetime.now(timezone.utc).isoformat(),
             "bbox": bbox,
