@@ -6,7 +6,7 @@ from backend.app.core.logging import logger
 class WeatherProvider:
     """Fetches real wind data from Open-Meteo (No API key required for MVP)"""
     def __init__(self):
-        self.base_url = "https://api.open-meteo.com/v1/marine"
+        self.base_url = "https://marine-api.open-meteo.com/v1/marine"
 
     def get_wind_at_location(self, lat: float, lon: float) -> Dict[str, Any]:
         """Fetch current wind speed, direction, and wave height at location."""

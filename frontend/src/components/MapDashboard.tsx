@@ -72,10 +72,11 @@ export const MapDashboard: React.FC<MapDashboardProps> = ({
       attributionControl: false,
     });
 
-    // Dark Matter tile layer for premium scientific aesthetics
-    L.tileLayer('https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png', {
+    // OpenStreetMap tile layer for reliable no-key open basemap
+    L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
       maxZoom: 19,
-      subdomains: 'abcd',
+      attribution: '&copy; OpenStreetMap contributors',
+      className: 'map-tiles'
     }).addTo(map);
 
     L.control.zoom({ position: 'bottomright' }).addTo(map);

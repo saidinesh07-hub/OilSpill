@@ -85,3 +85,6 @@ body {
   background: #0f172a !important;
   border: 1px solid #3b82f6 !important;
 }
+
+
+.map-tiles { filter: invert(100%) hue-rotate(180deg) brightness(95%) contrast(90%); }
